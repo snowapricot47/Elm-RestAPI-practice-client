@@ -78,7 +78,7 @@ type Msg
     | PostUser
     | ResultUser (Result Http.Error User)
     | ResultUserList (Result Http.Error (List User))
-    | ResultPostUser (Result Http.Error Guid)
+    | ResultPostUser (Result Http.Error ( Int, Guid ))
     | UrlRequested Browser.UrlRequest
     | UrlChanged Url.Url
 
@@ -151,7 +151,7 @@ update msg model =
 
         ResultPostUser result ->
             case result of
-                Ok guid ->
+                Ok ( _, guid ) ->
                     ( { model | post_result_guid = Just guid }
                     , Cmd.none
                     )
@@ -192,42 +192,40 @@ view model =
     { title = "Application Title"
     , body =
         [ div []
-            [ div []
-                [ input
-                    [ onInput (TextChanged GetId), placeholder "id", value model.get_id ]
-                    []
-                , button
-                    [ onClick GetUser ]
-                    [ text "get" ]
-                , case model.get_result_user of
-                    Just user ->
-                        viewUser user
+            [ input
+                [ onInput (TextChanged GetId), placeholder "id", value model.get_id ]
+                []
+            , button
+                [ onClick GetUser ]
+                [ text "get" ]
+            , case model.get_result_user of
+                Just user ->
+                    viewUser user
 
-                    Nothing ->
-                        text ""
-                ]
-            , div []
-                [ button [ onClick GetUserList ] [ text "getAll" ]
-                , case model.get_result_userList of
-                    Just userList ->
-                        div [] (List.map viewUser userList)
+                Nothing ->
+                    text ""
+            ]
+        , div []
+            [ button [ onClick GetUserList ] [ text "getAll" ]
+            , case model.get_result_userList of
+                Just userList ->
+                    div [] (List.map viewUser userList)
 
-                    Nothing ->
-                        text ""
-                ]
-            , div []
-                [ input [ onInput (TextChanged PostName), placeholder "name", value model.post_name ] []
-                , input [ onInput (TextChanged PostAge), placeholder "age", value model.post_age ] []
-                , button
-                    [ onClick PostUser ]
-                    [ text "post" ]
-                , case model.post_result_guid of
-                    Just guid ->
-                        div [] [ text <| "guid:" ++ guid ]
+                Nothing ->
+                    text ""
+            ]
+        , div []
+            [ input [ onInput (TextChanged PostName), placeholder "name", value model.post_name ] []
+            , input [ onInput (TextChanged PostAge), placeholder "age", value model.post_age ] []
+            , button
+                [ onClick PostUser ]
+                [ text "post" ]
+            , case model.post_result_guid of
+                Just guid ->
+                    div [] [ text <| "guid:" ++ guid ]
 
-                    Nothing ->
-                        text ""
-                ]
+                Nothing ->
+                    text ""
             ]
         ]
     }
@@ -253,6 +251,32 @@ type alias Guid =
 origin : String
 origin =
     "https://localhost:5001"
+
+
+expectJson : (Result Http.Error ( Int, a ) -> msg) -> Decoder a -> Http.Expect msg
+expectJson msg decoder =
+    Http.expectStringResponse msg <|
+        \res ->
+            case res of
+                Http.GoodStatus_ metadata body ->
+                    case D.decodeString decoder body of
+                        Ok result ->
+                            Ok ( metadata.statusCode, result )
+
+                        Err error ->
+                            Err (Http.BadBody (D.errorToString error))
+
+                Http.BadStatus_ metadata _ ->
+                    Err <| Http.BadStatus metadata.statusCode
+
+                Http.NetworkError_ ->
+                    Err Http.NetworkError
+
+                Http.Timeout_ ->
+                    Err Http.Timeout
+
+                Http.BadUrl_ url ->
+                    Err (Http.BadUrl url)
 
 
 type alias User =
@@ -292,7 +316,7 @@ getUserList msg =
         }
 
 
-postUser : (Result Http.Error Guid -> msg) -> { name : String, age : Int } -> Cmd msg
+postUser : (Result Http.Error ( Int, Guid ) -> msg) -> { name : String, age : Int } -> Cmd msg
 postUser msg req =
     let
         url =
@@ -310,7 +334,7 @@ postUser msg req =
     Http.post
         { url = url
         , body = Http.jsonBody body
-        , expect = Http.expectJson msg (D.field "id" D.string)
+        , expect = expectJson msg (D.field "id" D.string)
         }
 
 
