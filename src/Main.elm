@@ -40,11 +40,13 @@ type alias Model =
     , get_id : String
     , post_name : String
     , post_age : String
+    , delete_id : String
 
     -- RESPONSE
     , get_result_user : Maybe User
     , get_result_userList : Maybe (List User)
     , post_result_guid : Maybe Guid
+    , delete_result : Maybe Bool
     }
 
 
@@ -57,11 +59,13 @@ init _ url key =
       , get_id = ""
       , post_name = ""
       , post_age = ""
+      , delete_id = ""
 
       -- RESPONSE
       , get_result_user = Nothing
       , get_result_userList = Nothing
       , post_result_guid = Nothing
+      , delete_result = Nothing
       }
     , Cmd.none
     )
@@ -76,9 +80,11 @@ type Msg
     | GetUser
     | GetUserList
     | PostUser
+    | DeleteUser
     | ResultUser (Result Http.Error User)
     | ResultUserList (Result Http.Error (List User))
     | ResultPostUser (Result Http.Error ( Int, Guid ))
+    | ResultDeleteUser (Result Http.Error ())
     | UrlRequested Browser.UrlRequest
     | UrlChanged Url.Url
 
@@ -87,6 +93,7 @@ type TextField
     = GetId
     | PostName
     | PostAge
+    | DeleteId
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -109,6 +116,11 @@ update msg model =
                     , Cmd.none
                     )
 
+                DeleteId ->
+                    ( { model | delete_id = input }
+                    , Cmd.none
+                    )
+
         -- HTTP REQUEST
         GetUser ->
             ( model
@@ -126,6 +138,12 @@ update msg model =
                 { name = model.post_name
                 , age = model.post_age |> String.toInt |> Maybe.withDefault 0
                 }
+            )
+
+        DeleteUser ->
+            ( model
+            , deleteUser ResultDeleteUser
+                model.delete_id
             )
 
         -- HTTP RESPONSE
@@ -158,6 +176,18 @@ update msg model =
 
                 Err _ ->
                     ( model, Cmd.none )
+
+        ResultDeleteUser result ->
+            case result of
+                Ok _ ->
+                    ( { model | delete_result = Just True }
+                    , Cmd.none
+                    )
+
+                Err _ ->
+                    ( { model | delete_result = Just False }
+                    , Cmd.none
+                    )
 
         -- APPLICATION
         UrlRequested urlRequest ->
@@ -227,6 +257,23 @@ view model =
                 Nothing ->
                     text ""
             ]
+        , div []
+            [ input
+                [ onInput (TextChanged DeleteId), placeholder "id", value model.delete_id ]
+                []
+            , button
+                [ onClick DeleteUser ]
+                [ text "delete" ]
+            , case model.delete_result of
+                Just True ->
+                    text "result:OK"
+
+                Just False ->
+                    text "result:NG"
+
+                Nothing ->
+                    text ""
+            ]
         ]
     }
 
@@ -248,12 +295,16 @@ type alias Guid =
     String
 
 
-origin : String
-origin =
+type alias StatusCode =
+    Int
+
+
+host : String
+host =
     "https://localhost:5001"
 
 
-expectJson : (Result Http.Error ( Int, a ) -> msg) -> Decoder a -> Http.Expect msg
+expectJson : (Result Http.Error ( StatusCode, a ) -> msg) -> Decoder a -> Http.Expect msg
 expectJson msg decoder =
     Http.expectStringResponse msg <|
         \res ->
@@ -291,7 +342,7 @@ getUser msg id =
     let
         url =
             crossOrigin
-                origin
+                host
                 [ "api", "user" ]
                 [ Query.string "id" id ]
     in
@@ -306,7 +357,7 @@ getUserList msg =
     let
         url =
             crossOrigin
-                origin
+                host
                 [ "api", "user", "list" ]
                 []
     in
@@ -316,12 +367,12 @@ getUserList msg =
         }
 
 
-postUser : (Result Http.Error ( Int, Guid ) -> msg) -> { name : String, age : Int } -> Cmd msg
+postUser : (Result Http.Error ( StatusCode, Guid ) -> msg) -> { name : String, age : Int } -> Cmd msg
 postUser msg req =
     let
         url =
             crossOrigin
-                origin
+                host
                 [ "api", "user" ]
                 []
 
@@ -335,6 +386,31 @@ postUser msg req =
         { url = url
         , body = Http.jsonBody body
         , expect = expectJson msg (D.field "id" D.string)
+        }
+
+
+deleteUser : (Result Http.Error () -> msg) -> Guid -> Cmd msg
+deleteUser msg guid =
+    let
+        url =
+            crossOrigin
+                host
+                [ "api", "user" ]
+                []
+
+        body =
+            E.object
+                [ ( "id", E.string guid )
+                ]
+    in
+    Http.request
+        { method = "DELETE"
+        , headers = []
+        , url = url
+        , body = Http.jsonBody body
+        , expect = Http.expectWhatever msg
+        , timeout = Nothing
+        , tracker = Nothing
         }
 
 
